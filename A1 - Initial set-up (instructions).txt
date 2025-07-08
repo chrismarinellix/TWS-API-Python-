@@ -21,7 +21,7 @@ How to get started with TWS API (Python):
 
 How to access the IBKR Paper account:
 -------------------------------------
-   Login to www.ibkr.com -> Settings (top-right corner via “Welcome + your name”) -> choose: Paper Trading Account -> Your paper account's username & password may be retrieved here if needed
+Login to www.ibkr.com -> Settings (top-right corner via “Welcome + your name”) -> choose: Paper Trading Account -> Your paper account's username & password may be retrieved here if needed
 
 
 
@@ -45,3 +45,24 @@ TWS Live (socket port) = 7496
 TWS Paper (socket port) = 7497
 IB Gateway Live (socket port) = 4001
 IB Gateway Paper (socket port) = 4002
+
+
+
+General TWS / TWS API troubleshooting:
+--------------------------------------
+•	Ensure “Enable ActiveX and Socket Clients” is checked in TWS:
+    TWS -> File/Edit (top-left corner) -> Global Configuration -> API -> Settings -> “Enable ActiveX & Socket clients” is checked? -> Socket Port set here matches your code?
+
+•	Try switching TWS versions
+    TWS -> File -> Change Version -> switch from Latest to Stable (or vice versa) 
+
+•	Try unique IB Gateway versions 
+    Latest | Stable
+
+•	TWS Memory Allocation was increased above the 768 default? See: https://www.interactivebrokers.com/lib/cstools/faq/#/content/32642126
+    TWS -> File/Edit (top-left corner) -> Global Configuration -> General -> set the Memory Allocation (in MB) -> Ok
+
+•	Try running TWS/IB Gateway on a different network/machine (if possible)
+
+•	(Optionally) try a fresh install of TWS API
+•	(Optionally) try Python samples on GitHub
