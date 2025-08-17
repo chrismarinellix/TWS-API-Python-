@@ -1,11 +1,13 @@
 """
+
 Sample TWS API connection via app.connect() - https://ibkrcampus.com/ibkr-api-page/trader-workstation-api/#connectivity
 """
 
 from ibapi.client import EClient
 from ibapi.wrapper import EWrapper
 
-port = 7497
+port = 4002
+
 
 class TradingApp(EWrapper, EClient):
     def __init__(self):

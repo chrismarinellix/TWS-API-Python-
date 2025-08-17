@@ -7,7 +7,7 @@ Contract Details can also be retreived manually, via TWS - https://ibkrcampus.co
 from ibapi.client import *
 from ibapi.wrapper import *
 
-port = 7497
+port = 4002
 
 class TestApp(EClient, EWrapper):
     def __init__(self):
@@ -41,6 +41,7 @@ class TestApp(EClient, EWrapper):
         self.disconnect()
 
    
+
 app = TestApp()
-app.connect("127.0.0.1", port, 1001)
+app.connect("127.0.0.1", 4002, 1001)
 app.run()

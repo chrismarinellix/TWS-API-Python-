@@ -1,5 +1,5 @@
 """
-Updated IB TWS API Trading Bot with Order Checking and Better Error Handling
+Updated IB TWS API Trading Bot with ASX Focus and Enhanced Features
 """
 
 from ibapi.client import *
@@ -369,7 +369,20 @@ def run_connection_test():
 
 def get_stock_info():
     """Get real-time stock information"""
-    symbol = input("Enter stock symbol (e.g., AAPL): ").upper().strip()
+    # Market selection
+    print("\n📍 Select Market:")
+    print("1. 🇦🇺 ASX")
+    print("2. 🇺🇸 US Markets")
+    market_choice = input("Enter choice (1-2): ").strip()
+    
+    if market_choice == "1":
+        exchange = "ASX"
+        currency = "AUD"
+    else:
+        exchange = "SMART"
+        currency = "USD"
+    
+    symbol = input("\nEnter stock symbol: ").upper().strip()
     
     app = TradingBot()
     try:
@@ -391,8 +404,8 @@ def get_stock_info():
             contract = Contract()
             contract.symbol = symbol
             contract.secType = "STK"
-            contract.exchange = "SMART"
-            contract.currency = "USD"
+            contract.exchange = exchange
+            contract.currency = currency
             
             reqId = 1001
             app.market_data[reqId] = {"symbol": symbol}
@@ -482,85 +495,267 @@ def check_open_orders():
         app.disconnect_safely()
         print("✅ Order check complete!")
 
-def check_pending_orders_all_accounts():
-    """Check pending orders from IB system for both live and paper accounts"""
+def scan_weekly_gainers_asx():
+    """Scan for ASX stocks that have moved up 5% or more in the last week"""
     print("\n" + "="*60)
-    print("🔍 CHECKING PENDING ORDERS IN IB SYSTEM")
+    print("🇦🇺 SCANNING ASX WEEKLY GAINERS (5%+)")
     print("="*60)
     
-    port_choice = input("Which account to check?\n1. Live Account (port 4001)\n2. Paper Account (port 4002)\n3. Both\nEnter choice (1-3): ").strip()
+    # Comprehensive ASX stock list (ASX 200 components)
+    symbols = [
+        # Big 4 Banks & Financials
+        "BHP", "CBA", "CSL", "NAB", "WBC", "ANZ", "MQG", "QBE", "IAG", "SUN", "MPL",
+        # Mining & Resources
+        "RIO", "FMG", "S32", "NCM", "NST", "EVN", "MIN", "IGO", "OZL", "WHC", "NHC",
+        # Retail & Consumer
+        "WES", "WOW", "COL", "JBH", "HVN", "SUL", "BRG", "PMV", "KGN",
+        # Healthcare & Biotech
+        "SHL", "RHC", "COH", "RMD", "FPH", "PME", "PNI", "CSL",
+        # Technology
+        "XRO", "WTC", "CPU", "ALU", "APX", "TNE", "NXT",
+        # Real Estate & REITs
+        "GMG", "SCG", "GPT", "MGR", "DXS", "VCX", "CHC", "CQR",
+        # Utilities & Infrastructure
+        "TCL", "APA", "AST", "AGL", "ORG",
+        # Telecommunications
+        "TLS", "TPG", "VOC",
+        # Industrial & Transport
+        "BXB", "ALL", "AZJ", "QAN", "ALX", "QUB", "ALD",
+        # Energy
+        "WDS", "STO", "BPT", "WHC", "NHC",
+        # Consumer Staples
+        "TWE", "A2M", "BGA", "CCL", "EDV",
+        # Other Major Companies
+        "REA", "SEK", "CAR", "SGP", "BSL", "JHX", "ASX", "LLC", "SOL"
+    ]
     
-    ports_to_check = []
-    if port_choice == "1":
-        ports_to_check = [(4001, "LIVE")]
-    elif port_choice == "2":
-        ports_to_check = [(4002, "PAPER")]
-    elif port_choice == "3":
-        ports_to_check = [(4001, "LIVE"), (4002, "PAPER")]
-    else:
-        print("❌ Invalid choice")
-        return
+    print(f"📊 Scanning {len(symbols)} ASX stocks for weekly performance...")
+    print("⏳ This may take a moment...\n")
     
-    for check_port, account_type in ports_to_check:
-        print(f"\n📊 Checking {account_type} account (port {check_port})...")
-        print("-" * 40)
+    app = TradingBot()
+    results = []
+    
+    try:
+        client_id = get_unique_client_id()
+        print(f"🔗 Connecting with client ID: {client_id}...")
         
-        app = TradingBot()
-        try:
-            client_id = get_unique_client_id()
-            print(f"   Using client ID: {client_id}")
-            
-            if not app.connect_safely("127.0.0.1", check_port, client_id):
-                print(f"   Could not connect to port {check_port}")
+        if not app.connect_safely("127.0.0.1", port, client_id):
+            return
+        
+        api_thread = threading.Thread(target=app.run, daemon=True)
+        api_thread.start()
+        time.sleep(2)
+        
+        if app.nextOrderId is None:
+            print("⚠️  Could not get valid order ID from gateway")
+            return
+        
+        # Process each symbol
+        for i, symbol in enumerate(symbols):
+            try:
+                # Create contract for ASX stocks
+                contract = Contract()
+                contract.symbol = symbol
+                contract.secType = "STK"
+                contract.exchange = "ASX"  # Australian Securities Exchange
+                contract.currency = "AUD"  # Australian Dollar
+                
+                # Request historical data for the last week
+                reqId = 5000 + i
+                app.historical_data[reqId] = []
+                
+                # Request 1 week of daily bars
+                app.reqHistoricalData(
+                    reqId,
+                    contract,
+                    "",  # End date (blank = current)
+                    "1 W",  # Duration (1 week)
+                    "1 day",  # Bar size
+                    "MIDPOINT",  # Data type
+                    1,  # Use RTH (regular trading hours)
+                    1,  # Format date as yyyyMMdd
+                    False,  # Keep up to date
+                    []
+                )
+                
+                # Wait for data
+                time.sleep(0.8)  # Slightly faster but still safe
+                
+                # Calculate performance if we have data
+                if reqId in app.historical_data and len(app.historical_data[reqId]) >= 2:
+                    data = app.historical_data[reqId]
+                    first_close = data[0]['close']
+                    last_close = data[-1]['close']
+                    
+                    if first_close > 0:
+                        change_pct = ((last_close - first_close) / first_close) * 100
+                        
+                        results.append({
+                            'symbol': symbol,
+                            'start_price': first_close,
+                            'end_price': last_close,
+                            'change_pct': change_pct
+                        })
+                        
+                        # Show progress
+                        if change_pct >= 5:
+                            print(f"✅ {symbol}: +{change_pct:.2f}% 🚀")
+                        elif change_pct >= 0:
+                            print(f"   {symbol}: +{change_pct:.2f}%")
+                        else:
+                            print(f"   {symbol}: {change_pct:.2f}%")
+                
+            except Exception as e:
+                # Silently skip stocks that aren't found
                 continue
+        
+        # Sort results by performance
+        results.sort(key=lambda x: x['change_pct'], reverse=True)
+        
+        # Display summary
+        print("\n" + "="*60)
+        print("🇦🇺 ASX WEEKLY GAINERS SUMMARY (5%+ Movers)")
+        print("="*60)
+        
+        gainers = [r for r in results if r['change_pct'] >= 5]
+        
+        if gainers:
+            print(f"\n🚀 Found {len(gainers)} ASX stocks up 5% or more this week:\n")
+            print(f"{'Symbol':<8} {'Start (AUD)':<12} {'Current (AUD)':<12} {'Change %':<12} {'Status'}")
+            print("-" * 60)
             
-            api_thread = threading.Thread(target=app.run, daemon=True)
-            api_thread.start()
+            for stock in gainers[:20]:  # Show top 20 gainers
+                status = "🔥 HOT" if stock['change_pct'] >= 10 else "📈 Rising"
+                print(f"{stock['symbol']:<8} A${stock['start_price']:<10.2f} A${stock['end_price']:<10.2f} "
+                      f"{stock['change_pct']:>+7.2f}%     {status}")
+        else:
+            print("\n📉 No stocks found with 5%+ gains this week")
+        
+        # Also show top losers for context
+        losers = [r for r in results if r['change_pct'] <= -5]
+        if losers:
+            print(f"\n📉 Biggest ASX losers this week:\n")
+            print(f"{'Symbol':<8} {'Start (AUD)':<12} {'Current (AUD)':<12} {'Change %'}")
+            print("-" * 50)
+            for stock in losers[:5]:  # Show top 5 losers
+                print(f"{stock['symbol']:<8} A${stock['start_price']:<10.2f} A${stock['end_price']:<10.2f} "
+                      f"{stock['change_pct']:>+7.2f}%")
+        
+        # Market overview
+        if results:
+            avg_change = sum(r['change_pct'] for r in results) / len(results)
+            positive = len([r for r in results if r['change_pct'] > 0])
+            negative = len([r for r in results if r['change_pct'] < 0])
             
-            time.sleep(2)
-            
-            if app.nextOrderId is not None:
-                print(f"✅ Connected to {account_type} account")
-                
-                # Clear and request all open orders
-                app.open_orders = []
-                app.reqAllOpenOrders()
-                
-                # Also request auto open orders (orders placed by other clients)
-                app.reqAutoOpenOrders(True)
-                
-                # Request completed orders for today
-                app.reqCompletedOrders(False)
-                
-                print(f"⏳ Retrieving orders from IB system...")
-                time.sleep(5)
-                
-                if not app.open_orders:
-                    print(f"📭 No pending orders in {account_type} account")
-                else:
-                    print(f"\n✅ Found {len(app.open_orders)} pending order(s) in {account_type} account:")
-                    print("-" * 40)
-                    for order in app.open_orders:
-                        print(f"📋 Order ID: {order['orderId']}")
-                        print(f"   Symbol: {order['symbol']}")
-                        print(f"   Action: {order['action']}")
-                        print(f"   Quantity: {order['quantity']}")
-                        print(f"   Type: {order['orderType']}")
-                        print(f"   Status: {order.get('status', 'Unknown')}")
-                        print("-" * 40)
-                
-            else:
-                print(f"⚠️  Could not connect to {account_type} account on port {check_port}")
-                print(f"   Make sure IB Gateway/TWS is running on this port")
-                
-        except Exception as e:
-            print(f"❌ Failed to connect to {account_type} account: {e}")
-            print(f"   Make sure IB Gateway/TWS is running on port {check_port}")
-        finally:
-            app.disconnect_safely()
-            time.sleep(2)  # Wait between account checks
+            print(f"\n📊 ASX MARKET OVERVIEW:")
+            print(f"   Average Change: {avg_change:+.2f}%")
+            print(f"   Gainers: {positive} | Losers: {negative}")
+            print(f"   Best ASX Performer: {results[0]['symbol']} ({results[0]['change_pct']:+.2f}%)")
+            print(f"   Worst ASX Performer: {results[-1]['symbol']} ({results[-1]['change_pct']:+.2f}%)")
+        
+    except Exception as e:
+        print(f"❌ Scanner failed: {e}")
+    finally:
+        app.disconnect_safely()
+        print("\n✅ Scan complete!")
+
+def scan_us_gainers():
+    """Scan for US stocks using predefined list"""
+    print("\n" + "="*60)
+    print("🇺🇸 SCANNING US MARKET GAINERS (5%+)")
+    print("="*60)
     
-    print("\n✅ Pending orders check complete!")
+    # Popular US stocks
+    symbols = [
+        "AAPL", "MSFT", "GOOGL", "AMZN", "META", "TSLA", "NVDA", "JPM",
+        "V", "JNJ", "WMT", "PG", "UNH", "HD", "MA", "DIS", "BAC", "NFLX",
+        "ADBE", "CRM", "PFE", "TMO", "ABT", "CSCO", "XOM", "CVX", "NKE",
+        "ABBV", "ACN", "COST", "MCD", "WFC", "BMY", "AMD", "QCOM", "TXN",
+        "INTC", "ORCL", "IBM", "GE", "BA", "MMM", "CAT", "GS", "AXP"
+    ]
+    
+    print(f"📊 Scanning {len(symbols)} US stocks for weekly performance...")
+    
+    app = TradingBot()
+    results = []
+    
+    try:
+        client_id = get_unique_client_id()
+        print(f"🔗 Connecting with client ID: {client_id}...")
+        
+        if not app.connect_safely("127.0.0.1", port, client_id):
+            return
+        
+        api_thread = threading.Thread(target=app.run, daemon=True)
+        api_thread.start()
+        time.sleep(2)
+        
+        if app.nextOrderId is None:
+            return
+        
+        for i, symbol in enumerate(symbols):
+            try:
+                contract = Contract()
+                contract.symbol = symbol
+                contract.secType = "STK"
+                contract.exchange = "SMART"
+                contract.currency = "USD"
+                
+                reqId = 6000 + i
+                app.historical_data[reqId] = []
+                
+                app.reqHistoricalData(
+                    reqId, contract, "", "1 W", "1 day",
+                    "MIDPOINT", 1, 1, False, []
+                )
+                
+                time.sleep(0.8)
+                
+                if reqId in app.historical_data and len(app.historical_data[reqId]) >= 2:
+                    data = app.historical_data[reqId]
+                    first_close = data[0]['close']
+                    last_close = data[-1]['close']
+                    
+                    if first_close > 0:
+                        change_pct = ((last_close - first_close) / first_close) * 100
+                        results.append({
+                            'symbol': symbol,
+                            'start_price': first_close,
+                            'end_price': last_close,
+                            'change_pct': change_pct
+                        })
+                        
+                        if change_pct >= 5:
+                            print(f"✅ {symbol}: +{change_pct:.2f}% 🚀")
+                        elif change_pct >= 0:
+                            print(f"   {symbol}: +{change_pct:.2f}%")
+                        else:
+                            print(f"   {symbol}: {change_pct:.2f}%")
+                
+            except:
+                continue
+        
+        # Display results
+        if results:
+            results.sort(key=lambda x: x['change_pct'], reverse=True)
+            
+            gainers = [r for r in results if r['change_pct'] >= 5]
+            
+            if gainers:
+                print(f"\n🚀 Found {len(gainers)} US stocks up 5% or more:\n")
+                print(f"{'Symbol':<8} {'Start (USD)':<12} {'Current (USD)':<12} {'Change %'}")
+                print("-" * 55)
+                
+                for stock in gainers[:20]:
+                    status = "🔥" if stock['change_pct'] >= 10 else "📈"
+                    print(f"{stock['symbol']:<8} ${stock['start_price']:<10.2f} ${stock['end_price']:<10.2f} "
+                          f"{stock['change_pct']:>+7.2f}% {status}")
+        
+    except Exception as e:
+        print(f"❌ Failed: {e}")
+    finally:
+        app.disconnect_safely()
+        print("\n✅ Scan complete!")
 
 def enhanced_order_placement():
     """Enhanced order placement with multiple order types and better UI"""
@@ -703,463 +898,6 @@ def enhanced_order_placement():
         app.disconnect_safely()
         print("✅ Order placement complete!")
 
-def quick_order_templates():
-    """Quick order templates for common strategies"""
-    print("\n" + "="*60)
-    print("🚀 QUICK ORDER TEMPLATES")
-    print("="*60)
-    
-    print("1. Buy with 2% Stop Loss")
-    print("2. Buy with Bracket (1% Stop, 3% Profit)")
-    print("3. Sell with Trailing Stop (2%)")
-    print("4. Dollar Cost Average (DCA) Entry")
-    
-    template_choice = input("\nSelect template (1-4): ").strip()
-    
-    if template_choice == "1":
-        symbol = input("Enter stock symbol: ").upper().strip()
-        quantity = input("Enter quantity: ").strip()
-        entry_price = float(input("Enter entry price (or current price): $").strip())
-        stop_price = entry_price * 0.98  # 2% below entry
-        
-        print(f"\n📋 Order Preview:")
-        print(f"   BUY {quantity} shares of {symbol} @ Market")
-        print(f"   Stop Loss @ ${stop_price:.2f} (2% below ${entry_price:.2f})")
-        
-        if input("\nConfirm order? (yes/no): ").lower() == "yes":
-            place_template_order(symbol, "BUY", quantity, stop_loss=stop_price)
-    
-    # Add more templates as needed
-
-def place_template_order(symbol, action, quantity, stop_loss=None, take_profit=None):
-    """Helper to place template orders"""
-    app = TradingBot()
-    try:
-        client_id = get_unique_client_id()
-        if not app.connect_safely("127.0.0.1", port, client_id):
-            return
-        
-        api_thread = threading.Thread(target=app.run, daemon=True)
-        api_thread.start()
-        time.sleep(2)
-        
-        if app.nextOrderId is None:
-            print("⚠️  Could not get valid order ID")
-            return
-        
-        contract = Contract()
-        contract.symbol = symbol
-        contract.secType = "STK"
-        contract.exchange = "SMART"
-        contract.currency = "USD"
-        
-        # Place market order
-        order = create_clean_order(action, quantity, "MKT")
-        app.placeOrder(app.nextOrderId, contract, order)
-        
-        # Place stop loss if provided
-        if stop_loss:
-            stop_order = create_stop_loss_order(action, quantity, stop_loss)
-            app.placeOrder(app.nextOrderId + 1, contract, stop_order)
-        
-        time.sleep(5)
-        
-    except Exception as e:
-        print(f"❌ Failed: {e}")
-    finally:
-        app.disconnect_safely()
-
-def scan_all_asx_gainers():
-    """Use IB Scanner to find ALL ASX stocks with 5%+ weekly gains"""
-    print("\n" + "="*60)
-    print("🇦🇺 SCANNING ALL ASX STOCKS - WEEKLY GAINERS")
-    print("="*60)
-    print("Using IB Scanner to search entire ASX market...")
-    print("This will find ALL stocks, not just a predefined list\n")
-    
-    from ibapi.scanner import ScannerSubscription
-    
-    app = TradingBot()
-    
-    try:
-        client_id = get_unique_client_id()
-        print(f"🔗 Connecting with client ID: {client_id}...")
-        
-        if not app.connect_safely("127.0.0.1", port, client_id):
-            return
-        
-        api_thread = threading.Thread(target=app.run, daemon=True)
-        api_thread.start()
-        time.sleep(2)
-        
-        if app.nextOrderId is None:
-            print("⚠️  Could not get valid order ID from gateway")
-            return
-        
-        # Clear scanner data
-        app.scanner_data = []
-        
-        # Create scanner subscription for ASX
-        scanner = ScannerSubscription()
-        scanner.instrument = "STK"
-        scanner.locationCode = "STK.ASX"  # ASX stocks only
-        scanner.scanCode = "TOP_PERC_GAIN"  # Top percentage gainers
-        
-        # Optional filters
-        scanner.abovePrice = 0.50  # Minimum price $0.50
-        scanner.belowPrice = 10000  # Maximum price $10,000
-        scanner.aboveVolume = 10000  # Minimum volume
-        scanner.marketCapAbove = 1000000  # Minimum market cap $1M
-        
-        print("📡 Requesting top gainers from ASX...")
-        print("⏳ Scanning entire exchange...\n")
-        
-        # Request scanner data
-        app.reqScannerSubscription(7001, scanner, [], [])
-        
-        # Wait for results
-        time.sleep(10)
-        
-        # Cancel scanner
-        app.cancelScannerSubscription(7001)
-        
-        if app.scanner_data:
-            print(f"\n📊 Found {len(app.scanner_data)} top gaining stocks on ASX")
-            
-            # Now get historical data for each to calculate exact weekly change
-            print("\n⏳ Fetching weekly performance data...")
-            results = []
-            
-            for i, stock_data in enumerate(app.scanner_data[:30]):  # Limit to top 30
-                try:
-                    contract = Contract()
-                    contract.symbol = stock_data['symbol']
-                    contract.secType = "STK"
-                    contract.exchange = "ASX"
-                    contract.currency = "AUD"
-                    
-                    reqId = 8000 + i
-                    app.historical_data[reqId] = []
-                    
-                    app.reqHistoricalData(
-                        reqId, contract, "", "1 W", "1 day",
-                        "MIDPOINT", 1, 1, False, []
-                    )
-                    
-                    time.sleep(0.5)
-                    
-                    if reqId in app.historical_data and len(app.historical_data[reqId]) >= 2:
-                        data = app.historical_data[reqId]
-                        first_close = data[0]['close']
-                        last_close = data[-1]['close']
-                        
-                        if first_close > 0:
-                            change_pct = ((last_close - first_close) / first_close) * 100
-                            
-                            if change_pct >= 5:  # Only keep 5%+ gainers
-                                results.append({
-                                    'symbol': stock_data['symbol'],
-                                    'rank': stock_data['rank'],
-                                    'start_price': first_close,
-                                    'end_price': last_close,
-                                    'change_pct': change_pct
-                                })
-                                print(f"✅ {stock_data['symbol']}: +{change_pct:.2f}%")
-                
-                except Exception as e:
-                    continue
-            
-            # Display results
-            if results:
-                results.sort(key=lambda x: x['change_pct'], reverse=True)
-                
-                print("\n" + "="*60)
-                print("🚀 ASX WEEKLY GAINERS (5%+ from ENTIRE MARKET)")
-                print("="*60)
-                print(f"\n{'Rank':<6} {'Symbol':<8} {'Start (AUD)':<12} {'Current (AUD)':<12} {'Change %'}")
-                print("-" * 60)
-                
-                for stock in results:
-                    print(f"{stock['rank']:<6} {stock['symbol']:<8} A${stock['start_price']:<10.2f} "
-                          f"A${stock['end_price']:<10.2f} {stock['change_pct']:>+7.2f}%")
-            else:
-                print("\n📉 No stocks found with 5%+ weekly gains")
-        else:
-            print("📭 No scanner results received")
-            print("Note: Scanner requires market data subscriptions")
-            
-    except Exception as e:
-        print(f"❌ Scanner failed: {e}")
-        print("\nNote: IB Scanner requires:")
-        print("- Active market data subscription for ASX")
-        print("- Scanner permissions on your account")
-    finally:
-        app.disconnect_safely()
-        print("\n✅ Scan complete!")
-
-def scan_weekly_gainers():
-    """Scan for ASX stocks that have moved up 5% or more in the last week"""
-    print("\n" + "="*60)
-    print("🇦🇺 SCANNING ASX WEEKLY GAINERS (5%+)")
-    print("="*60)
-    
-    # List of popular ASX stocks (ASX 50 components)
-    # Note: Some tickers have changed or been delisted
-    symbols = [
-        "BHP", "CBA", "CSL", "NAB", "WBC", "ANZ", "WES", "MQG", 
-        "GMG", "WDS", "TLS", "WOW", "FMG", "TCL", "RIO", "ALL",
-        "REA", "SHL", "NCM", "COL", "BXB", "QBE", "IAG",
-        "SUN", "AMC", "APA", "SCG", "GPT", "MGR", "DXS",
-        "SGP", "JHX", "ASX", "CPU", "CTX", "BSL",
-        "AGL", "MPL", "TWE", "QAN", "STO", "RHC", "NST", "EVN",
-        "S32", "SOL", "XRO", "PME", "MIN", "LLC", "NXT"
-    ]
-    
-    print(f"📊 Scanning {len(symbols)} ASX stocks for weekly performance...")
-    print("⏳ This may take a moment...\n")
-    
-    app = TradingBot()
-    results = []
-    
-    try:
-        client_id = get_unique_client_id()
-        print(f"🔗 Connecting with client ID: {client_id}...")
-        
-        if not app.connect_safely("127.0.0.1", port, client_id):
-            return
-        
-        api_thread = threading.Thread(target=app.run, daemon=True)
-        api_thread.start()
-        time.sleep(2)
-        
-        if app.nextOrderId is None:
-            print("⚠️  Could not get valid order ID from gateway")
-            return
-        
-        # Process each symbol
-        for i, symbol in enumerate(symbols):
-            try:
-                # Create contract for ASX stocks
-                contract = Contract()
-                contract.symbol = symbol
-                contract.secType = "STK"
-                contract.exchange = "ASX"  # Australian Securities Exchange
-                contract.currency = "AUD"  # Australian Dollar
-                
-                # Request historical data for the last week
-                reqId = 5000 + i
-                app.historical_data[reqId] = []
-                
-                # Request 1 week of daily bars
-                app.reqHistoricalData(
-                    reqId,
-                    contract,
-                    "",  # End date (blank = current)
-                    "1 W",  # Duration (1 week)
-                    "1 day",  # Bar size
-                    "MIDPOINT",  # Data type
-                    1,  # Use RTH (regular trading hours)
-                    1,  # Format date as yyyyMMdd
-                    False,  # Keep up to date
-                    []
-                )
-                
-                # Wait for data
-                time.sleep(1)
-                
-                # Calculate performance if we have data
-                if reqId in app.historical_data and len(app.historical_data[reqId]) >= 2:
-                    data = app.historical_data[reqId]
-                    first_close = data[0]['close']
-                    last_close = data[-1]['close']
-                    
-                    if first_close > 0:
-                        change_pct = ((last_close - first_close) / first_close) * 100
-                        
-                        results.append({
-                            'symbol': symbol,
-                            'start_price': first_close,
-                            'end_price': last_close,
-                            'change_pct': change_pct
-                        })
-                        
-                        # Show progress
-                        if change_pct >= 5:
-                            print(f"✅ {symbol}: +{change_pct:.2f}% 🚀")
-                        elif change_pct >= 0:
-                            print(f"   {symbol}: +{change_pct:.2f}%")
-                        else:
-                            print(f"   {symbol}: {change_pct:.2f}%")
-                
-            except Exception as e:
-                print(f"   ⚠️  Error scanning {symbol}: {e}")
-                continue
-        
-        # Sort results by performance
-        results.sort(key=lambda x: x['change_pct'], reverse=True)
-        
-        # Display summary
-        print("\n" + "="*60)
-        print("🇦🇺 ASX WEEKLY GAINERS SUMMARY (5%+ Movers)")
-        print("="*60)
-        
-        gainers = [r for r in results if r['change_pct'] >= 5]
-        
-        if gainers:
-            print(f"\n🚀 Found {len(gainers)} ASX stocks up 5% or more this week:\n")
-            print(f"{'Symbol':<8} {'Start (AUD)':<12} {'Current (AUD)':<12} {'Change %':<12} {'Status'}")
-            print("-" * 60)
-            
-            for stock in gainers:
-                status = "🔥 HOT" if stock['change_pct'] >= 10 else "📈 Rising"
-                print(f"{stock['symbol']:<8} A${stock['start_price']:<10.2f} A${stock['end_price']:<10.2f} "
-                      f"{stock['change_pct']:>+7.2f}%     {status}")
-        else:
-            print("\n📉 No stocks found with 5%+ gains this week")
-        
-        # Also show top losers for context
-        losers = [r for r in results if r['change_pct'] <= -5]
-        if losers:
-            print(f"\n📉 Biggest ASX losers this week:\n")
-            print(f"{'Symbol':<8} {'Start (AUD)':<12} {'Current (AUD)':<12} {'Change %'}")
-            print("-" * 50)
-            for stock in losers[:5]:  # Show top 5 losers
-                print(f"{stock['symbol']:<8} A${stock['start_price']:<10.2f} A${stock['end_price']:<10.2f} "
-                      f"{stock['change_pct']:>+7.2f}%")
-        
-        # Market overview
-        if results:
-            avg_change = sum(r['change_pct'] for r in results) / len(results)
-            positive = len([r for r in results if r['change_pct'] > 0])
-            negative = len([r for r in results if r['change_pct'] < 0])
-            
-            print(f"\n📊 ASX MARKET OVERVIEW:")
-            print(f"   Average Change: {avg_change:+.2f}%")
-            print(f"   Gainers: {positive} | Losers: {negative}")
-            print(f"   Best ASX Performer: {results[0]['symbol']} ({results[0]['change_pct']:+.2f}%)")
-            print(f"   Worst ASX Performer: {results[-1]['symbol']} ({results[-1]['change_pct']:+.2f}%)")
-        
-    except Exception as e:
-        print(f"❌ Scanner failed: {e}")
-    finally:
-        app.disconnect_safely()
-        print("\n✅ Scan complete!")
-
-def scan_custom_list():
-    """Scan a custom list of stocks for weekly performance"""
-    print("\n" + "="*60)
-    print("📈 CUSTOM STOCK SCANNER")
-    print("="*60)
-    
-    # Ask for market
-    print("Select Market:")
-    print("1. 🇦🇺 ASX (Australian Securities Exchange)")
-    print("2. 🇺🇸 US Markets (NYSE/NASDAQ)")
-    market_choice = input("Enter choice (1-2): ").strip()
-    
-    if market_choice == "1":
-        exchange = "ASX"
-        currency = "AUD"
-        example = "BHP,CBA,CSL"
-        market_name = "ASX"
-    else:
-        exchange = "SMART"
-        currency = "USD"
-        example = "AAPL,MSFT,GOOGL"
-        market_name = "US"
-    
-    # Get custom symbols from user
-    symbols_input = input(f"\nEnter stock symbols separated by commas (e.g., {example}): ").upper().strip()
-    symbols = [s.strip() for s in symbols_input.split(',') if s.strip()]
-    
-    if not symbols:
-        print("❌ No symbols entered")
-        return
-    
-    print(f"\n📊 Scanning {len(symbols)} stocks for weekly performance...")
-    
-    app = TradingBot()
-    results = []
-    
-    try:
-        client_id = get_unique_client_id()
-        if not app.connect_safely("127.0.0.1", port, client_id):
-            return
-        
-        api_thread = threading.Thread(target=app.run, daemon=True)
-        api_thread.start()
-        time.sleep(2)
-        
-        if app.nextOrderId is None:
-            print("⚠️  Could not connect to gateway")
-            return
-        
-        for i, symbol in enumerate(symbols):
-            try:
-                contract = Contract()
-                contract.symbol = symbol
-                contract.secType = "STK"
-                contract.exchange = exchange
-                contract.currency = currency
-                
-                reqId = 6000 + i
-                app.historical_data[reqId] = []
-                
-                app.reqHistoricalData(
-                    reqId, contract, "", "1 W", "1 day", 
-                    "MIDPOINT", 1, 1, False, []
-                )
-                
-                time.sleep(1.5)
-                
-                if reqId in app.historical_data and len(app.historical_data[reqId]) >= 2:
-                    data = app.historical_data[reqId]
-                    first_close = data[0]['close']
-                    last_close = data[-1]['close']
-                    
-                    if first_close > 0:
-                        change_pct = ((last_close - first_close) / first_close) * 100
-                        results.append({
-                            'symbol': symbol,
-                            'start_price': first_close,
-                            'end_price': last_close,
-                            'change_pct': change_pct
-                        })
-                
-            except Exception as e:
-                print(f"⚠️  Error scanning {symbol}")
-                continue
-        
-        # Display results
-        if results:
-            results.sort(key=lambda x: x['change_pct'], reverse=True)
-            
-            print("\n" + "="*60)
-            print(f"📊 {market_name} WEEKLY PERFORMANCE RESULTS")
-            print("="*60)
-            
-            curr_symbol = "A$" if currency == "AUD" else "$"
-            print(f"\n{'Symbol':<8} {'Start':<10} {'Current':<10} {'Change %':<12} {'Trend'}")
-            print("-" * 55)
-            
-            for stock in results:
-                if stock['change_pct'] >= 5:
-                    trend = "🚀 Strong Up"
-                elif stock['change_pct'] >= 0:
-                    trend = "📈 Up"
-                elif stock['change_pct'] >= -5:
-                    trend = "📉 Down"
-                else:
-                    trend = "💥 Strong Down"
-                    
-                print(f"{stock['symbol']:<8} {curr_symbol}{stock['start_price']:<9.2f} {curr_symbol}{stock['end_price']:<9.2f} "
-                      f"{stock['change_pct']:>+7.2f}%     {trend}")
-        
-    except Exception as e:
-        print(f"❌ Scanner failed: {e}")
-    finally:
-        app.disconnect_safely()
-
 def position_size_calculator():
     """Calculate position size based on risk management"""
     print("\n" + "="*60)
@@ -1200,203 +938,6 @@ def position_size_calculator():
     else:
         print("❌ Invalid prices - stop loss must be different from entry")
 
-def cancel_or_modify_order():
-    """Cancel or modify existing orders"""
-    app = TradingBot()
-    try:
-        client_id = get_unique_client_id()
-        print(f"🔍 Checking orders...")
-        
-        if not app.connect_safely("127.0.0.1", port, client_id):
-            return
-        
-        api_thread = threading.Thread(target=app.run, daemon=True)
-        api_thread.start()
-        time.sleep(2)
-        
-        if app.nextOrderId is None:
-            return
-        
-        # Get open orders
-        app.open_orders = []
-        app.reqAllOpenOrders()
-        time.sleep(3)
-        
-        if not app.open_orders:
-            print("📭 No open orders to modify/cancel")
-            return
-        
-        print("\n📋 Open Orders:")
-        for i, order in enumerate(app.open_orders, 1):
-            print(f"{i}. Order {order['orderId']}: {order['action']} {order['quantity']} {order['symbol']}")
-        
-        print(f"{len(app.open_orders) + 1}. Cancel All Orders")
-        
-        choice = input("\nSelect order to modify/cancel: ").strip()
-        
-        if choice.isdigit():
-            choice_idx = int(choice) - 1
-            if choice_idx == len(app.open_orders):
-                # Cancel all orders
-                app.reqGlobalCancel()
-                print("❌ Cancelling all orders...")
-            elif 0 <= choice_idx < len(app.open_orders):
-                selected_order = app.open_orders[choice_idx]
-                print(f"\nSelected: Order {selected_order['orderId']}")
-                print("1. Cancel Order")
-                print("2. Modify Order (not implemented yet)")
-                
-                action = input("Select action (1-2): ").strip()
-                if action == "1":
-                    app.cancelOrder(selected_order['orderId'])
-                    print(f"❌ Cancelling order {selected_order['orderId']}...")
-        
-        time.sleep(3)
-        
-    except Exception as e:
-        print(f"❌ Failed: {e}")
-    finally:
-        app.disconnect_safely()
-
-def paper_trade_order():
-    """Place a paper trading order (safe testing)"""
-    print("\n📝 Paper Trading Order (Safe Testing)")
-    
-    # Market selection
-    print("\n📍 Select Market:")
-    print("1. 🇦🇺 ASX")
-    print("2. 🇺🇸 US Markets")
-    market_choice = input("Enter choice (1-2): ").strip()
-    
-    if market_choice == "1":
-        exchange = "ASX"
-        currency = "AUD"
-    else:
-        exchange = "SMART"
-        currency = "USD"
-    
-    symbol = input("\nEnter stock symbol: ").upper().strip()
-    action = input("Enter action (BUY/SELL): ").upper().strip()
-    quantity = input("Enter quantity: ").strip()
-    order_type = input("Enter order type (MKT/LMT): ").upper().strip()
-    
-    limit_price = None
-    if order_type == "LMT":
-        limit_price = input("Enter limit price: $").strip()
-    
-    app = TradingBot()
-    try:
-        client_id = get_unique_client_id()
-        print(f"🔗 Connecting for paper trade with client ID: {client_id}...")
-        
-        if not app.connect_safely("127.0.0.1", port, client_id):
-            return
-        
-        api_thread = threading.Thread(target=app.run, daemon=True)
-        api_thread.start()
-        
-        time.sleep(2)
-        
-        if app.nextOrderId is not None:
-            contract_obj = Contract()
-            contract_obj.symbol = symbol
-            contract_obj.secType = "STK"
-            contract_obj.exchange = exchange
-            contract_obj.currency = currency
-            
-            # Use helper function for clean order
-            order = create_clean_order(action, quantity, order_type, limit_price)
-            
-            print(f"📄 Placing paper {order_type} order...")
-            print(f"   {action} {quantity} shares of {symbol}")
-            if order_type == "LMT" and limit_price:
-                print(f"   Limit price: ${limit_price}")
-            
-            app.placeOrder(app.nextOrderId, contract_obj, order)
-            
-            time.sleep(8)
-        else:
-            print("⚠️  Could not get valid order ID from gateway")
-        
-    except Exception as e:
-        print(f"❌ Failed to place paper order: {e}")
-    finally:
-        app.disconnect_safely()
-        print("✅ Paper trade complete!")
-
-def place_live_order():
-    """Place a live order - BE CAREFUL!"""
-    print("\n" + "="*60)
-    print("⚠️  LIVE ORDER PLACEMENT - REAL MONEY AT RISK! ⚠️")
-    print("="*60)
-    
-    confirm = input("Are you sure you want to place a LIVE order? (type 'YES' to continue): ")
-    if confirm != "YES":
-        print("❌ Order cancelled for safety")
-        return
-    
-    symbol = input("Enter stock symbol: ").upper().strip()
-    action = input("Enter action (BUY/SELL): ").upper().strip()
-    quantity = input("Enter quantity: ").strip()
-    order_type = input("Enter order type (MKT/LMT): ").upper().strip()
-    
-    limit_price = None
-    if order_type == "LMT":
-        limit_price = input("Enter limit price: $").strip()
-    
-    print(f"\n📋 Order Summary:")
-    print(f"   Symbol: {symbol}")
-    print(f"   Action: {action}")
-    print(f"   Quantity: {quantity}")
-    print(f"   Type: {order_type}")
-    if order_type == "LMT":
-        print(f"   Limit Price: ${limit_price}")
-    
-    final_confirm = input("\n⚠️  FINAL CONFIRMATION - Place this LIVE order? (type 'PLACE ORDER'): ")
-    if final_confirm != "PLACE ORDER":
-        print("❌ Order cancelled")
-        return
-    
-    app = TradingBot()
-    try:
-        client_id = get_unique_client_id()
-        print(f"🔗 Connecting to place order with client ID: {client_id}...")
-        
-        if not app.connect_safely("127.0.0.1", port, client_id):
-            return
-        
-        api_thread = threading.Thread(target=app.run, daemon=True)
-        api_thread.start()
-        
-        time.sleep(2)
-        
-        if app.nextOrderId is not None:
-            contract_obj = Contract()
-            contract_obj.symbol = symbol
-            contract_obj.secType = "STK"
-            contract_obj.exchange = exchange
-            contract_obj.currency = currency
-            
-            # Use helper function for clean order
-            order = create_clean_order(action, quantity, order_type, limit_price)
-            
-            print(f"🚀 Placing {order_type} order...")
-            print(f"   {action} {quantity} shares of {symbol}")
-            if order_type == "LMT":
-                print(f"   Limit price: ${limit_price}")
-            
-            app.placeOrder(app.nextOrderId, contract_obj, order)
-            
-            time.sleep(5)
-        else:
-            print("⚠️  Could not get valid order ID from gateway")
-        
-    except Exception as e:
-        print(f"❌ Failed to place order: {e}")
-    finally:
-        app.disconnect_safely()
-        print("✅ Order placement complete!")
-
 # Main execution
 if __name__ == "__main__":
     while True:
@@ -1408,53 +949,38 @@ if __name__ == "__main__":
         print("📊 MARKET DATA & SCANNERS:")
         print("1. Get stock/ticker info (delayed)")
         print("2. Get account info & positions")
-        print("3. 🇦🇺 Scan ASX Top 50 Gainers (Predefined List)")
-        print("4. 🔥 Scan ALL ASX Stocks (IB Scanner - Requires Subscription)")
-        print("5. Custom Stock Scanner")
+        print("3. 🇦🇺 Scan ASX Weekly Gainers (5%+)")
+        print("4. 🇺🇸 Scan US Market Gainers (5%+)")
         
         print("\n📈 ORDER PLACEMENT:")
-        print("6. Enhanced Order Placement (All Types)")
-        print("7. Quick Order Templates")
-        print("8. Simple Order (Original)")
+        print("5. Enhanced Order Placement (All Types)")
+        print("6. Position Size Calculator")
         
         print("\n📋 ORDER MANAGEMENT:")
-        print("9. Check open orders")
-        print("10. Cancel/Modify orders")
-        print("11. Check pending orders (all accounts)")
+        print("7. Check open orders")
         
         print("\n⚙️  UTILITIES:")
-        print("12. Position size calculator")
-        print("13. Basic connection test")
+        print("8. Basic connection test")
         
         print("\n0. Exit")
         
-        choice = input("\nEnter choice (0-13): ").strip()
+        choice = input("\nEnter choice (0-8): ").strip()
         
         if choice == "1":
             get_stock_info()
         elif choice == "2":
             get_account_info()
         elif choice == "3":
-            scan_weekly_gainers()
+            scan_weekly_gainers_asx()
         elif choice == "4":
-            scan_all_asx_gainers()
+            scan_us_gainers()
         elif choice == "5":
-            scan_custom_list()
-        elif choice == "6":
             enhanced_order_placement()
-        elif choice == "7":
-            quick_order_templates()
-        elif choice == "8":
-            paper_trade_order()
-        elif choice == "9":
-            check_open_orders()
-        elif choice == "10":
-            cancel_or_modify_order()
-        elif choice == "11":
-            check_pending_orders_all_accounts()
-        elif choice == "12":
+        elif choice == "6":
             position_size_calculator()
-        elif choice == "13":
+        elif choice == "7":
+            check_open_orders()
+        elif choice == "8":
             run_connection_test()
         elif choice == "0":
             print("👋 Goodbye!")
