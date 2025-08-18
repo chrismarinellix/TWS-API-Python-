@@ -796,6 +796,106 @@ class MomentumTrader:
                       
         finally:
             self.disconnect()
+            
+    def place_test_order(self):
+        """Place a simple test order to verify system is working"""
+        if not self.connect():
+            return
+            
+        try:
+            print("\n" + "="*60)
+            print(Colors.bold("🧪 TEST ORDER PLACEMENT"))
+            print("="*60)
+            print("\nThis will place a small test order in your PAPER account")
+            print("Purpose: Verify order placement is working correctly")
+            
+            # Simple test order for AAPL
+            contract = Contract()
+            contract.symbol = "AAPL"
+            contract.secType = "STK"
+            contract.exchange = "SMART"
+            contract.currency = "USD"
+            
+            # Create a small market order
+            order = Order()
+            order.action = "BUY"
+            order.totalQuantity = 1  # Just 1 share
+            order.orderType = "MKT"
+            order.tif = "DAY"
+            
+            # CRITICAL: Ensure transmit is TRUE
+            order.transmit = True
+            order.eTradeOnly = False
+            order.firmQuoteOnly = False
+            
+            print(f"\n📝 Test Order Details:")
+            print(f"   Symbol: {Colors.bold('AAPL')}")
+            print(f"   Action: {Colors.green('BUY')}")
+            print(f"   Quantity: {Colors.bold('1 share')}")
+            print(f"   Type: {Colors.cyan('MARKET ORDER')}")
+            print(f"   Order ID: {Colors.yellow(str(self.app.nextOrderId))}")
+            
+            print(f"\n⏳ Placing order...")
+            
+            # Place the order
+            self.app.placeOrder(self.app.nextOrderId, contract, order)
+            
+            # Wait for status
+            print("⏳ Waiting for confirmation...")
+            time.sleep(3)
+            
+            # Check if we got order status
+            order_id = self.app.nextOrderId - 1
+            if order_id in self.app.order_statuses:
+                status_info = self.app.order_statuses[order_id]
+                
+                print("\n" + "="*60)
+                print(Colors.green("✅ ORDER PLACED SUCCESSFULLY!"))
+                print("="*60)
+                print(f"\n📊 Order Status:")
+                print(f"   Status: {Colors.bold(status_info['status'])}")
+                print(f"   Filled: {status_info['filled']} shares")
+                print(f"   Remaining: {status_info['remaining']} shares")
+                if status_info['avgFillPrice'] > 0:
+                    print(f"   Fill Price: ${status_info['avgFillPrice']:.2f}")
+                    
+                print(f"\n{Colors.green('✅ TEST SUCCESSFUL!')}")
+                print("Your order system is working correctly!")
+                print("Check your IB Gateway to see the order in your account.")
+            else:
+                # Try to get open orders
+                print("\n⏳ Checking for open orders...")
+                self.app.open_orders = []
+                self.app.reqAllOpenOrders()
+                time.sleep(2)
+                
+                if self.app.open_orders:
+                    print("\n" + "="*60)
+                    print(Colors.yellow("⚠️  ORDER SUBMITTED - PENDING"))
+                    print("="*60)
+                    print("\nOrder was submitted but may be held:")
+                    for order_info in self.app.open_orders:
+                        if order_info['symbol'] == 'AAPL':
+                            print(f"   Order ID: {order_info['orderId']}")
+                            print(f"   Status: {order_info['status']}")
+                            print(f"   Action: {order_info['action']} {order_info['quantity']} shares")
+                    print("\n📌 Note: Order may be held until market opens")
+                    print("Check your IB Gateway for full details.")
+                else:
+                    print("\n" + "="*60)
+                    print(Colors.red("❌ NO CONFIRMATION RECEIVED"))
+                    print("="*60)
+                    print("\nPossible reasons:")
+                    print("1. Order may be held until market opens")
+                    print("2. Connection issues with IB Gateway")
+                    print("3. Account permissions")
+                    print("\n🔍 Please check your IB Gateway directly")
+                    print("Look in the 'Orders' or 'Pending' tab")
+                    
+        except Exception as e:
+            print(f"\n{Colors.red(f'❌ Error: {e}')}")
+        finally:
+            self.disconnect()
 
 def main_menu():
     """Enhanced main menu with professional features"""
@@ -820,10 +920,11 @@ def main_menu():
         print(f"\n{Colors.blue('⚙️  UTILITIES:')}")
         print("8. Connection Test")
         print("9. Switch Trading Mode (Paper/Live)")
+        print(f"{Colors.red('10. 🧪 TEST ORDER (Paper Only)')}")
         
         print("\n0. Exit")
         
-        choice = input(f"\n{Colors.bold('Enter choice (0-9):')} ").strip()
+        choice = input(f"\n{Colors.bold('Enter choice (0-10):')} ").strip()
         
         if choice == "0":
             print(f"\n{Colors.green('👋 Thank you for using Momentum Trading System!')}")
@@ -850,6 +951,10 @@ def main_menu():
             if trader.connect():
                 print("✅ Connection successful!")
                 trader.disconnect()
+                
+        elif choice == "10":
+            trader = MomentumTrader()
+            trader.place_test_order()
                 
         input(f"\n{Colors.cyan('Press Enter to continue...')}")
 
